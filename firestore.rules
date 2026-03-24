@@ -1,0 +1,112 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    // Collection: users
+    // Document ID: {uid}
+    // Fields: uid, email, role (admin, parent, tutor), displayName, photoURL, createdAt
+    //
+    // Collection: tutors
+    // Document ID: {uid}
+    // Fields: uid, subjects, location, availability, experience, gender, pricing, status, bio
+    //
+    // Collection: parents
+    // Document ID: {uid}
+    // Fields: uid, phone, address
+    //
+    // Collection: requests
+    // Document ID: {requestId}
+    // Fields: id, parentId, studentName, subjects, location, availability, genderPreference, budget, status, matchedTutorId, suggestedTutorIds, createdAt
+    //
+    // Collection: sessions
+    // Document ID: {sessionId}
+    // Fields: id, requestId, tutorId, parentId, startTime, endTime, status, notes
+    //
+    // Collection: payments
+    // Document ID: {paymentId}
+    // Fields: id, parentId, amount, date, status, type, requestId
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "elegbeleyetoluwalope@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isTutor() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'tutor';
+    }
+
+    function isParent() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'parent';
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isAuthenticated() && isOwner(uid) && hasOnlyAllowedFields(['uid', 'email', 'role', 'displayName', 'photoURL', 'createdAt']) && (request.resource.data.role != 'admin' || isAdmin());
+      allow update: if (isOwner(uid) && request.resource.data.role == resource.data.role) || isAdmin();
+    }
+
+    match /tutors/{uid} {
+      allow read: if isAuthenticated(); // Tutors need to be visible for matching
+      allow create: if isOwner(uid) && hasRequiredFields(['uid', 'subjects', 'location', 'status']);
+      allow update: if isOwner(uid) || isAdmin();
+    }
+
+    match /parents/{uid} {
+      allow read: if isOwner(uid) || isAdmin();
+      allow create: if isOwner(uid) && hasRequiredFields(['uid', 'phone']);
+      allow update: if isOwner(uid) || isAdmin();
+    }
+
+    match /requests/{requestId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.parentId) || isOwner(resource.data.matchedTutorId) || isAdmin());
+      allow create: if isAuthenticated() && isParent() && hasRequiredFields(['parentId', 'studentName', 'subjects', 'status']);
+      allow update: if isAdmin() || (isParent() && isOwner(resource.data.parentId));
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.parentId) || isOwner(resource.data.tutorId) || isAdmin());
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isAuthenticated() && (isOwner(resource.data.parentId) || isOwner(resource.data.tutorId)));
+    }
+
+    match /payments/{paymentId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.parentId) || isAdmin());
+      allow create: if isAdmin() || (isParent() && isOwner(request.resource.data.parentId));
+      allow update: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow read: if isOwner(resource.data.userId);
+      allow create: if isAdmin() || isAuthenticated(); // Allow system or users to notify
+      allow update: if isOwner(resource.data.userId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+    }
+  }
+}

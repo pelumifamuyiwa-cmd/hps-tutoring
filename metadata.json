@@ -1,0 +1,5 @@
+{
+  "name": "HPS Tutoring Platform",
+  "description": "A comprehensive tutoring management system featuring a public website, parent portal, tutor portal, and admin dashboard with smart matching and payment tracking.",
+  "requestFramePermissions": ["geolocation"]
+}
